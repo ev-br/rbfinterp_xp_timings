@@ -1,0 +1,58 @@
+# coding: utf-8
+import os
+import socket
+import numpy as np
+import torch
+
+from scipy.interpolate import RBFInterpolator
+from scipy.stats.qmc import Halton
+
+### Set up the interpolator ###
+
+Nobs = 100
+rng = np.random.default_rng(123)
+xobs = 2*Halton(2, seed=rng).random(Nobs) - 1
+yobs = np.sum(xobs, axis=1)*np.exp(-6*np.sum(xobs**2, axis=1))
+
+
+### MANUAL: set the array library ###
+
+xp = torch
+
+xobs, yobs = map(xp.asarray, (xobs, yobs))
+rbf = RBFInterpolator(xobs, yobs)
+print(rbf._xp.__name__)
+
+### checkpoint name ###
+xp_name = rbf._xp.__name__.split('.')[-1]
+device = os.environ.get("SCIPY_DEVICE", "cpu")
+jit = "jit" if os.environ.get("SCIPY_JIT", "0") == "1" else "nojit"
+machine = socket.gethostname()
+
+fname = f"rbfinterp_time.{machine}.{xp_name}.{device}.{jit}.txt"
+
+### pre-compile ###
+rbf(xp.asarray([[1, 1],  [2, 3]]))
+
+
+
+result_list = []
+with open(fname, 'w') as f:
+    f.write("# N   time, s    stdev, s\n")
+
+
+### Run the benchmark loop ###
+for N1 in [50, 100, 500, 1000, 2000]:
+    x1 = xp.linspace(-1, 1, N1)
+    xgrid = xp.stack(xp.meshgrid(x1, x1, indexing='ij'))
+    xflat = xgrid.reshape(2, -1).T     # make it a 2-D array
+
+    print(N1, end=': ')
+    res = get_ipython().run_line_magic('timeit', '-o yflat = rbf(xflat)')
+
+    # checkpoint
+    result_list.append([N1, res.average, res.stdev])
+    with open(fname, "a") as f:
+        f.write(", ".join(str(x) for x in result_list[-1]) + "\n")
+
+
