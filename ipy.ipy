@@ -3,6 +3,7 @@ import os
 import socket
 import numpy as np
 import torch
+import jax.numpy as jnp
 
 from scipy.interpolate import RBFInterpolator
 from scipy.stats.qmc import Halton
@@ -17,14 +18,18 @@ yobs = np.sum(xobs, axis=1)*np.exp(-6*np.sum(xobs**2, axis=1))
 
 ### MANUAL: set the array library ###
 
-xp = np #torch
+xp = jnp  #np #torch
 
 xobs, yobs = map(xp.asarray, (xobs, yobs))
 rbf = RBFInterpolator(xobs, yobs)
 print(rbf._xp.__name__)
 
 ### checkpoint name ###
-xp_name = rbf._xp.__name__.split('.')[-1]
+xp_name = rbf._xp.__name__
+if 'compat' in xp_name:
+    xp_name = xp_name.split('.')[-1]
+
+
 device = os.environ.get("SCIPY_DEVICE", "cpu")
 jit = "jit" if os.environ.get("SCIPY_JIT", "0") == "1" else "nojit"
 machine = socket.gethostname()
