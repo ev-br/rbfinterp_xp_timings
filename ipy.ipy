@@ -18,7 +18,7 @@ yobs = np.sum(xobs, axis=1)*np.exp(-6*np.sum(xobs**2, axis=1))
 
 ### MANUAL: set the array library ###
 
-xp = jnp  #np #torch
+xp = np # torch
 
 xobs, yobs = map(xp.asarray, (xobs, yobs))
 rbf = RBFInterpolator(xobs, yobs)
