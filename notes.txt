@@ -59,6 +59,16 @@ drops to 15-20% for N=1000, 2000
 This is with OpenBLAS though, next try with MKL.
 
 
+MKL by itself does not seem to do much; using `numba.prange` is a big deal though.
+Brings numba-jitted perf to 0.2-0.6 of the pythran range.
+
+Is there a way to control the number of threads? Seems to rely on hyperthreading
+(uses 8 threads on gonzales; 64 on QGPU3)
+
+Oversubscription is a thing: Using MKL_NUM_THREADS=1 improves runtime by x2 unless N=2000
+
+Split np.linalg.norm w/o prange & separate loops w/prange?
+
 
 ================================
 
