@@ -1,0 +1,100 @@
+1. Numba : CPU utilization is very bad. For `top` show a drop from 3200% for N=50,100 to
+600% for N=1000, 2000. Memory pressure?
+
+
+numba 0.61.2 fails to compile `np.prod(..., axis=-1)`, `np.linalg.norm` (also axis),
+`np.linalg.vector_norm` (just does not find the `vector_norm` name)
+
+In [1]: import numba
+
+In [2]: @numba.njit
+   ...: def _prod(x):
+   ...:     return np.prod(x, axis=-1)
+   ...: 
+
+In [3]: _prod(np.arange(5))
+
+...
+
+TypingError: Failed in nopython mode pipeline (step: nopython frontend)
+No implementation of function Function(<function prod at 0x7fb38c18aca0>) found for signature:
+ 
+ >>> prod(array(int64, 1d, C), axis=Literal[int](-1))
+ 
+There are 2 candidate implementations:
+  - Of which 2 did not match due to:
+  Overload in function 'array_prod': File: numba/np/old_arraymath.py: Line 357.
+    With argument(s): '(array(int64, 1d, C), axis=int64)':
+   Rejected as the implementation raised a specific error:
+     TypingError: got an unexpected keyword argument 'axis'
+  raised from /home/br/miniforge3/envs/scipy-dev/lib/python3.13/site-packages/numba/core/typing/templates.py:791
+
+During: resolving callee type: Function(<function prod at 0x7fb38c18aca0>)
+During: typing of call at <ipython-input-2-0a491e7d3ff6> (3)
+
+
+File "<ipython-input-2-0a491e7d3ff6>", line 3:
+def _prod(x):
+    return np.prod(x, axis=-1)
+    ^
+
+During: Pass nopython_type_inference
+
+
+================================
+
+
+2. Numba, @jit(parallel=True):
+
+The decorator is picky: fails to compile if parallel=True is added to a scalar kernel;
+
+Probably need to add it to the outer loop only? adding parallel=True to both an
+inner loop and the outer loop causes massive slowdowns (orders two orders of magnitude)!
+--- tried adding to both `_build_evaluation_coefficients_impl` (the outer loop) and
+`kernel_vector` and `polynomial_vector`
+
+Adding `parallel=True` to the outer loop does not speed it up! CPU utilization still
+drops to 15-20% for N=1000, 2000
+
+This is with OpenBLAS though, next try with MKL.
+
+
+
+================================
+
+
+3. JAX: 
+
+- need to make sure to `$ pip install jax[cpu]` (pip install a GPU-first version by default?)
+- need to add `jax.block_until_ready(...)` to `%timeit` ?
+- the CPU utilization from `$ top` is still in the 500-600% range, but the timings are better than torch?
+
+
+    BUG: fix timings on JAX/qgpu3
+    
+    1. Force-install JAX CPU [installs a CUDA version by default on a GPU-available machine?]
+    
+    Run `$ mamba list |grep jax`, manually purge all vestiges of jaxlib, jax-pjrt etc, then
+    `$ pip install jax[cpu]`
+    
+    2. Add `block_until_ready` in the timings:
+    
+    $ git diff
+    diff --git a/ipy.ipy b/ipy.ipy
+    index a6dc93e..81dfcb7 100644
+    --- a/ipy.ipy
+    +++ b/ipy.ipy
+    @@ -4,6 +4,7 @@ import socket
+     import numpy as np
+     import torch
+     import jax.numpy as jnp
+    +import jax
+    
+         print(N1, end=': ')
+    -    res = get_ipython().run_line_magic('timeit', '-o yflat = rbf(xflat)')
+    +    res = get_ipython().run_line_magic('timeit', '-o yflat = jax.block_until_ready(rbf(xflat))')
+
+
+==========================
+
+
