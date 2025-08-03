@@ -2,8 +2,8 @@
 import os
 import socket
 import numpy as np
-import torch
-import jax.numpy as jnp
+#import torch
+#import jax.numpy as jnp
 
 from scipy.interpolate import RBFInterpolator
 from scipy.stats.qmc import Halton
