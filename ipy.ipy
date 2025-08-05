@@ -2,11 +2,33 @@
 import os
 import socket
 import numpy as np
-#import torch
-#import jax.numpy as jnp
+
+try:
+   import torch
+   HAVE_TORCH=True
+except ImportError:
+   HAVE_TORCH = False
+
+try:
+    import jax.numpy as jnp
+    import jax
+    HAVE_JAX = True
+except ImportError:
+   HAVE_JAX = False
 
 from scipy.interpolate import RBFInterpolator
 from scipy.stats.qmc import Halton
+
+
+### what is the env ###
+device = os.environ.get("SCIPY_DEVICE", "cpu")
+jit = "jit" if os.environ.get("SCIPY_JIT", "0") == "1" else "nojit"
+machine = socket.gethostname()
+
+if HAVE_JAX:
+    jax.config.update("jax_enable_x64", True)
+    jax.config.update("jax_default_device", jax.devices(device)[0])
+
 
 ### Set up the interpolator ###
 
@@ -18,28 +40,26 @@ yobs = np.sum(xobs, axis=1)*np.exp(-6*np.sum(xobs**2, axis=1))
 
 ### MANUAL: set the array library ###
 
-xp = np # torch
+xp = jnp # torch
 
 xobs, yobs = map(xp.asarray, (xobs, yobs))
 rbf = RBFInterpolator(xobs, yobs)
-print(rbf._xp.__name__)
 
 ### checkpoint name ###
 xp_name = rbf._xp.__name__
 if 'compat' in xp_name:
     xp_name = xp_name.split('.')[-1]
 
-
-device = os.environ.get("SCIPY_DEVICE", "cpu")
-jit = "jit" if os.environ.get("SCIPY_JIT", "0") == "1" else "nojit"
-machine = socket.gethostname()
-
 fname = f"rbfinterp_time.{machine}.{xp_name}.{device}.{jit}.txt"
+
+print(fname)
+print(rbf._xp.__name__)
+print(f"{device = }")
+print(f"{jit = }")
+
 
 ### pre-compile ###
 rbf(xp.asarray([[1, 1],  [2, 3]]))
-
-
 
 result_list = []
 with open(fname, 'w') as f:
@@ -53,7 +73,7 @@ for N1 in [50, 100, 500, 1000, 2000]:
     xflat = xgrid.reshape(2, -1).T     # make it a 2-D array
 
     print(N1, end=': ')
-    res = get_ipython().run_line_magic('timeit', '-o yflat = rbf(xflat)')
+    res = get_ipython().run_line_magic('timeit', '-o yflat = jax.block_until_ready(rbf(xflat))')
 
     # checkpoint
     result_list.append([N1, res.average, res.stdev])
