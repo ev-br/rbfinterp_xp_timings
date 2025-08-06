@@ -1,0 +1,112 @@
+
+# coding: utf-8
+import os
+import socket
+import numpy as np
+
+try:
+   import torch
+   HAVE_TORCH=True
+except ImportError:
+   HAVE_TORCH = False
+
+try:
+    import jax.numpy as jnp
+    import jax
+    HAVE_JAX = True
+except ImportError:
+   HAVE_JAX = False
+
+try:
+   import cupy as cp
+   from cupyx.profiler import benchmark as cp_benchmark
+   HAVE_CUPY = True
+except ImportError:
+   HAVE_CUPY = False
+
+print(f"{HAVE_CUPY = }")
+
+
+from scipy.interpolate import RBFInterpolator
+from scipy.stats.qmc import Halton
+
+
+### what is the env ###
+device = os.environ.get("SCIPY_DEVICE", "cpu")
+jit = "jit" if os.environ.get("SCIPY_JIT", "0") == "1" else "nojit"
+machine = socket.gethostname()
+
+
+### MANUAL: set the array library ###
+
+xp = torch  #cp  #jnp  # cp  # torch
+
+
+
+if HAVE_JAX and xp == jnp:
+    jax.config.update("jax_enable_x64", True)
+    jax.config.update("jax_default_device", jax.devices(device)[0])
+
+if HAVE_TORCH and xp == torch:
+    torch.set_default_device(device)
+    torch.set_default_dtype(torch.float64)
+
+
+### The benchmark function itself ###
+def measure(func, arg, xp_name):
+   if xp_name == "cupy":
+      prof = cp_benchmark(func, (arg,), name='RBF_call', n_repeat=10)
+      cpu_time = prof.cpu_times.mean()
+      gpu_time = prof.gpu_times.mean()
+      print(f"prof: cpu_time (ms): ", cpu_time*1000, "  gpu_time (ms)", gpu_time*1000)
+      return max(cpu_time, gpu_time), 0
+   else:
+      res = %timeit -o yflat = jax.block_until_ready(func(arg))
+      return res.average, res.stdev
+
+### Set up the interpolator ###
+
+Nobs = 100
+rng = np.random.default_rng(123)
+xobs = 2*Halton(2, seed=rng).random(Nobs) - 1
+yobs = np.sum(xobs, axis=1)*np.exp(-6*np.sum(xobs**2, axis=1))
+
+xobs, yobs = map(xp.asarray, (xobs, yobs))
+rbf = RBFInterpolator(xobs, yobs)
+
+### checkpoint name ###
+xp_name = rbf._xp.__name__
+if 'compat' in xp_name:
+    xp_name = xp_name.split('.')[-1]
+
+fname = f"rbfinterp_time.{machine}.{xp_name}.{device}.{jit}.txt"
+
+print(fname)
+print(rbf._xp.__name__)
+print(f"{device = }")
+print(f"{jit = }")
+
+
+### pre-compile ###
+rbf(xp.asarray([[1, 1],  [2, 3]]))
+
+result_list = []
+with open(fname, 'w') as f:
+    f.write("# N   time, s    stdev, s\n")
+
+
+### Run the benchmark loop ###
+for N1 in [50, 100, 500, 1000, 2000]:
+    x1 = xp.linspace(-1, 1, N1)
+    xgrid = xp.stack(xp.meshgrid(x1, x1, indexing='ij'))
+    xflat = xgrid.reshape(2, -1).T     # make it a 2-D array
+
+    print(N1, end=': ')
+    time, stdev = measure(rbf, xflat, xp_name)
+
+    # checkpoint
+    result_list.append([N1, time, stdev])
+    with open(fname, "a") as f:
+        f.write(", ".join(str(x) for x in result_list[-1]) + "\n")
+
+
