@@ -41,8 +41,6 @@ machine = socket.gethostname()
 
 xp = torch  #cp  #jnp  # cp  # torch
 
-
-
 if HAVE_JAX and xp == jnp:
     jax.config.update("jax_enable_x64", True)
     jax.config.update("jax_default_device", jax.devices(device)[0])
@@ -50,7 +48,6 @@ if HAVE_JAX and xp == jnp:
 if HAVE_TORCH and xp == torch:
     torch.set_default_device(device)
     torch.set_default_dtype(torch.float64)
-
 
 ### The benchmark function itself ###
 def measure(func, arg, xp_name):
@@ -61,7 +58,13 @@ def measure(func, arg, xp_name):
       print(f"prof: cpu_time (ms): ", cpu_time*1000, "  gpu_time (ms)", gpu_time*1000)
       return max(cpu_time, gpu_time), 0
    else:
-      res = %timeit -o yflat = jax.block_until_ready(func(arg))
+
+      if xp_name == "torch":
+          func1 = lambda x: func(x); torch.cuda.synchronize()
+      else:
+          func1 = func
+
+      res = %timeit -o yflat = jax.block_until_ready(func1(arg))
       return res.average, res.stdev
 
 ### Set up the interpolator ###
